@@ -1,0 +1,526 @@
+(c) Procedures and triggers exercices
+#########################################################################################################################
+EX 1:
+Donat un intèrval de DNIs, programar un procediment emmagatzemat "llistat_treb(dniIni,dniFi)" 
+per obtenir la informació de cadascun dels treballadors amb un DNI d'aquest interval.
+
+Per cada treballador de l'interval cal obtenir:
+- Les seves dades personals: dni, nom, sou_base i plus
+
+- En cas que el treballador tingui 5 o més lloguers actius, al llistat hi ha de sortir una fila per 
+  cadascun dels cotxes que té llogats.
+- En qualsevol altre cas, al llistat hi ha de sortir una única fila amb les dades del treballador, i nul 
+  a la matrícula.
+
+Tingueu en compte que:
+- Es vol que retorneu els treballadors ordenats per dni i matricula de forma ascendent.
+- El tipus de les dades que s'han de retornar han de ser els mateixos que hi ha a la taula on estan definits 
+  els atributs corresponents.
+
+El procediment ha d'informar dels errors a través d'excepcions. Les situacions d'error que heu d'identificar són 
+les tipificades a la taula missatgesExcepcions, que podeu trobar definida i amb els inserts corresponents al fitxer adjunt.
+En el vostre procediment heu d'incloure, on s'identifiquin aquestes situacions, les sentències:
+SELECT texte INTO missatge FROM missatgesExcepcions WHERE num=___; ( 1 o 2, depenent de l'error)
+RAISE EXCEPTION '%',missatge;
+On la variable missatge ha de ser una variable definida al vostre procediment.
+
+Pel joc de proves que trobareu al fitxer adjunt i la crida següent,
+SELECT * FROM llistat_treb('11111111','33333333');
+el resultat ha de ser:
+
+DNI		Nom		Sou		Plus		Matricula
+22222222		Joan		1700		150		1111111111
+22222222		Joan		1700		150		2222222222
+22222222		Joan		1700		150		3333333333
+22222222		Joan		1700		150		4444444444
+22222222		Joan		1700		150		5555555555
+#########################################################################################################################
+-- Sentències d'esborrat de la base de dades:
+drop table lloguers_actius;
+drop table treballadors;
+drop table cotxes;
+drop table missatgesExcepcions;
+drop function  llistat_treb(char(8), char(8));
+
+-- Sentències de preparació de la base de dades:
+create table cotxes(
+	matricula char(10) primary key,
+	marca char(20) not null,
+	model char(20) not null,
+	categoria integer not null,
+	color char(10),
+	any_fab integer
+	);
+create table treballadors(
+	dni char(8) primary key,
+	nom char(30) not null,
+	sou_base real not null,
+	plus real not null
+	);
+create table lloguers_actius(
+	matricula char(10) primary key    references cotxes,
+	dni char(8) not null constraint fk_treb  references treballadors,
+	num_dies integer not null,
+	preu_total real not null
+	);
+
+create table missatgesExcepcions(
+	num integer, 
+	texte varchar(50)
+	);
+insert into missatgesExcepcions values(1,'No hi ha cap tupla dins del interval demanat');
+insert into missatgesExcepcions values(2, 'Error intern');
+
+--------------------------
+-- Joc de proves Public
+--------------------------
+
+-- Sentències de neteja de les taules:
+delete from lloguers_actius;
+delete from treballadors;
+delete from cotxes;
+
+-- Sentències d'inicialització:
+insert into cotxes values ('1111111111','Audi','A4',1,'Vermell',1998);
+insert into cotxes values ('2222222222','Audi','A3',2,'Blanc',1998);
+insert into cotxes values ('3333333333','Volskwagen','Golf',2,'Blau',1990);
+insert into cotxes values ('4444444444','Toyota','Corola',3,'groc',1999);
+insert into cotxes values ('5555555555','Honda','Civic',3,'Vermell',2000);
+insert into cotxes values ('6666666666','BMW','Mini',2,'Vermell',2000);
+
+insert into treballadors values ('22222222','Joan',1700,150);
+
+insert into lloguers_actius values ('1111111111','22222222',7,750);
+insert into lloguers_actius values ('2222222222','22222222',5,550);
+insert into lloguers_actius values ('3333333333','22222222',4,450);
+insert into lloguers_actius values ('4444444444','22222222',8,850);
+insert into lloguers_actius values ('5555555555','22222222',2,250);
+
+
+create type dades_empl as (dni char(8), nom char(30), sou_base real, 
+			plus real, matricula char(10));
+
+create or replace function llistat_treb(dniIni char(8), dniFi char(8))
+returns setof dades_empl as $$
+declare d dades_empl;
+missatge varchar(50);
+
+begin
+	for d in select t.dni, t.nom, t.sou_base, t.plus, null
+			 from treballadors t
+			 where t.dni >= dniIni and t.dni <= dniFi 
+			 
+	loop 
+		if (5 > (select count(*)
+				from lloguers_actius l 
+				where l.dni = d.dni))
+		then return next d;
+		else 
+			for d.matricula in select l.matricula 
+							   from lloguers_actius l 
+							   where l.dni = d.dni
+			loop 
+				return next d;
+			end loop;
+		end if;
+	
+	end loop;
+		if not found then 
+			select texte into missatge from missatgesExcepcions where num = 1;
+			raise exception '%', missatge;
+		end if;
+	return;
+
+exception
+	when raise_exception then raise exception '%', sqlerrm;
+	when others then 	
+		select texte into missatge from missatgesExcepcions where num = 2;
+		raise exception '%', missatge;
+
+end; $$language plpgsql;
+
+#########################################################################################################################
+EX 2:
+Implementar mitjançant disparadors la restricció d'integritat següent:
+No es pot esborrar l'empleat 123 ni modificar el seu número d'empleat.
+
+Cal informar dels errors a través d'excepcions tenint en compte les situacions tipificades a la taula missatgesExcepcions,
+que podeu trobar definida (amb els inserts corresponents) al fitxer adjunt. Concretament en el vostre procediment heu d'incloure, 
+quan calgui, les sentències:
+SELECT texte INTO missatge FROM missatgesExcepcions WHERE num=__; (el número que sigui, depenent de l'error)
+RAISE EXCEPTION '%',missatge;
+La variable missatge ha de ser una variable definida al vostre procediment, i del mateix tipus que l'atribut corresponent de l'esquema 
+de la base de dades.
+
+Pel joc de proves que trobareu al fitxer adjunt i la instrucció:
+DELETE FROM empleats WHERE nempl=123;
+La sortida ha de ser:
+
+No es pot esborrar l'empleat 123 ni modificar el seu número d'empleat
+#########################################################################################################################
+-- Sentències de preparació de la base de dades:
+create table empleats(
+                 nempl integer primary key,
+                 salari integer);
+
+create table missatgesExcepcions(
+	num integer, 
+	texte varchar(100));
+
+insert into missatgesExcepcions values(1,'No es pot esborrar l''empleat 123 ni modificar el seu número d''empleat');
+
+-- Sentències d'esborrat de la base de dades:
+drop table empleats;
+drop table missatgesExcepcions;
+
+--------------------------
+-- Joc de proves Public
+--------------------------
+
+-- Sentències d'inicialització:
+insert into empleats values(1,1000);
+insert into empleats values(2,2000);
+insert into empleats values(123,3000);
+
+-- Dades d'entrada o sentències d'execució:
+delete from empleats where nempl=123;
+
+create function error123() returns trigger as $$
+	declare 
+	missatge varchar(2000);
+	begin
+		if (old.nempl = 123 and (TG_OP = 'DELETE' or TG_OP = 'UPDATE')) 
+			then select texte into missatge from missatgesExcepcions where num = 1;
+			raise exception '%',missatge;
+		elseif (TG_OP = 'DELETE') then return OLD;
+		else return NEW;
+	
+		end if;
+	
+	end;
+$$ language plpgsql;
+		
+create trigger trig_r
+before delete or update of nempl on empleats 
+for each row 
+execute procedure error123();
+
+#########################################################################################################################
+EX 3:
+Implementar mitjançant disparadors la restricció d'integritat següent:
+No es poden esborrar empleats el dijous
+Tigueu en compte que:
+- Les restriccions d'integritat definides a la BD (primary key, foreign key,...) es violen amb menys freqüència que la restricció comprovada per aquests disparadors.
+- El dia de la setmana serà el que indiqui la única fila que hi ha d'haver sempre insertada a la taula "dia". Com podreu veure en el joc de proves que trobareu al fitxer adjunt, el dia de la setmana és el 'dijous'. Per fer altres proves podeu modificar la fila de la taula amb el nom d'un altre dia de la setmana. IMPORTANT: Tant en el programa com en la base de dades poseu el nom del dia de la setmana en MINÚSCULES.
+
+Cal informar dels errors a través d'excepcions tenint en compte les situacions tipificades a la taula missatgesExcepcions, que podeu trobar definida (amb els inserts corresponents) al fitxer adjunt. Concretament en el vostre procediment heu d'incloure, quan calgui, les sentències:
+SELECT texte INTO missatge FROM missatgesExcepcions WHERE num=__;(el número que sigui, depenent de l'error)
+RAISE EXCEPTION '%',missatge;
+La variable missatge ha de ser una variable definida al vostre procediment, i del mateix tipus que l'atribut corresponent de l'esquema de la base de dades.
+
+Pel joc de proves que trobareu al fitxer adjunt i la instrucció:
+DELETE FROM empleats WHERE salari<=1000
+la sortida ha de ser:
+
+No es poden esborrar empleats el dijous
+#########################################################################################################################
+CREATE TABLE empleats(
+  nempl integer primary key,
+  salari integer);
+
+insert into empleats values(1,1000);
+
+insert into empleats values(2,2000);
+
+insert into empleats values(123,3000);
+
+CREATE TABLE dia(
+dia char(10));
+
+insert into dia values('dijous');
+
+create table missatgesExcepcions(
+	num integer, 
+	texte varchar(50)
+	);
+insert into missatgesExcepcions values(1,'No es poden esborrar empleats el dijous');
+
+create function error123() returns trigger as $$
+	declare 
+	missatge varchar(2000);
+	dia_avui dia;
+	begin
+		select dia into dia_avui from dia;
+		if (dia_avui.dia = 'dijous') 
+			then
+			SELECT texte INTO missatge 
+			FROM missatgesExcepcions
+			WHERE num=1;
+			RAISE EXCEPTION '%',missatge;
+		
+		else return old;
+	
+		end if;
+		return null;
+	end;
+$$ language plpgsql;
+		
+create trigger trig_r
+before delete on empleats 
+for each statement
+execute procedure error123();
+
+
+#########################################################################################################################
+EX 4:
+En aquest exercici es tracta de mantenir de manera automàtica, mitjançant triggers, l'atribut derivat import de la taula comandes.
+
+En concret, l'import d'una comanda és igual a la suma dels resultats de multiplicar per cada línia de comanda, la quantitat del producte de la línia pel preu del producte .
+
+Només heu de considerar les operacions de tipus INSERT sobre la taula línies de comandes.
+
+Pel joc de proves que trobareu al fitxer adjunt, i la sentència: INSERT INTO liniesComandes VALUES (110, 'p111', 2);
+La sentència s'executarà sense cap problema, i l'estat de la taula de comandes després de la seva execució ha de ser:
+
+numcomanda		instantfeta		instantservida		numtelf		import
+110		1091		1101		null		30
+#########################################################################################################################
+create table productes
+(idProducte char(9),
+nom char(20),
+mida char(20),
+preu integer check(preu>0),
+primary key (idProducte),
+unique (nom,mida));
+
+create table domicilis
+(numTelf char(9),
+nomCarrer char(20),
+numCarrer integer check(numCarrer>0),
+pis char(2),
+porta char(2),
+primary key (numTelf));
+
+create table comandes
+(numComanda integer check(numComanda>0),
+instantFeta integer not null check(instantFeta>0),
+instantServida integer check(instantServida>0),
+numTelf char(9),
+import integer ,
+primary key (numComanda),
+foreign key (numTelf) references domicilis,
+check (instantServida>instantFeta));
+-- numTelf es el numero de telefon del domicili des don sha 
+-- fet la comanda. Pot tenir valor nul en cas que la comanda 
+-- sigui de les de recollir a la botiga. 
+
+create table liniesComandes
+(numComanda integer,
+idProducte char(9),
+quantitat integer check(quantitat>0),
+primary key(numComanda,idProducte),
+foreign key (idProducte) references productes,
+foreign key (numComanda) references comandes
+);
+-- quantitat es el numero d'unitats del producte que sha demanat 
+-- a la comanda
+
+insert into productes values ('p111', '4 formatges', 'gran', 10);   
+
+insert into productes values ('p222', 'margarita', 'gran', 5);  
+ 
+insert into comandes(numComanda,instantfeta,instantservida,numtelf, import) values (110, 1091, 1101, null, 10);
+
+insert into liniesComandes values (110, 'p222', 2);
+
+create function calcul_import() returns trigger as $$
+declare
+preus integer default 0;
+
+	begin
+		select preu into preus 
+		from productes 
+		where idproducte = new.idproducte;
+		update comandes
+		set import = import + preus*new.quantitat
+		where numcomanda = new.numcomanda;
+		
+		return new;
+	end;
+$$ language plpgsql;
+	
+
+create trigger trig_r
+after insert on liniesComandes
+for each row 
+execute procedure calcul_import();
+
+
+#########################################################################################################################
+EX 5:
+En aquest exercici es tracta definir els disparadors necessaris sobre empleats2 (veure definició de la base de dades al fitxer adjunt) per mantenir la restricció següent:
+Els valors de l'atribut ciutat1 de la taula empleats1 han d'estar inclosos en els valors de ciutat2 de la taula empleats2
+Per mantenir la restricció, la idea és que:
+
+En lloc de treure un missatge d'error en cas que s'intenti executar una sentència sobre empleats2 que pugui violar la restricció,
+cal executar operacions compensatories per assegurar el compliment de l'asserció. En concret aquestes operacions compensatories ÚNICAMENT podran ser operacions DELETE.
+
+Pel joc de proves que trobareu al fitxer adjunt, i la sentència:
+DELETE FROM empleats2 WHERE nemp2=1;
+La sentència s'executarà sense cap problema,i l'estat de la base de dades just després ha de ser:
+
+Taula empleats1
+nemp1	nom1	ciutat1
+1	joan	bcn
+2	maria	mad
+
+Taula empleats2
+nemp2	nom2	ciutat2
+2	pere	mad
+3	enric	bcn
+#########################################################################################################################
+create table empleats1 (nemp1 integer primary key, nom1 char(25), ciutat1 char(10) not null);
+
+create table empleats2 (nemp2 integer primary key, nom2 char(25), ciutat2 char(10) not null);
+
+insert into empleats2 values(1,'joan','bcn');
+insert into empleats2 values(2,'pere','mad');
+insert into empleats2 values(3,'enric','bcn');
+insert into empleats1 values(1,'joan','bcn');
+insert into empleats1 values(2,'maria','mad');
+
+create or replace function del_upt_ciutat2() returns trigger as $$
+begin
+
+	--caso en el que habian 2 o mas no pasa nada :)
+	if (1 <= (select count(*)
+			from empleats2 e2 
+			where e2.ciutat2  = old.ciutat2))
+	then return null;
+	--caso hay que borrar todas las ciutat1 que se llamen igual a ciutat2
+	else 
+		DELETE FROM empleats1 WHERE ciutat1 = old.ciutat2;
+		return null;
+	end if;
+	
+end
+$$ language plpgsql;
+
+
+create trigger trig_r
+after delete or update of ciutat2 on empleats2  
+for each row execute procedure del_upt_ciutat2();
+
+#########################################################################################################################
+EX 6:
+Disposem de la base de dades del fitxer adjunt que gestiona clubs esportius i socis d'aquests clubs.
+Cal implementar un procediment emmagatzemat "assignar_individual(nomSoci,nomClub)".
+
+El procediment ha de:
+- Enregistrar l'assignació del soci nomSoci al club nomClub, inserint la fila corresponent a la taula Socisclubs.
+- Si el club nomClub passa a tenir més de 5 socis, inserir el club a la taula Clubs_amb_mes_de_5_socis.
+- El procediment no retorna cap resultat.
+
+Les situacions d'error que cal identificar són les tipificades a la taula missatgesExcepcions.
+Quan s'identifiqui una d'aquestes situacions cal generar una excepció:
+SELECT texte INTO missatge FROM missatgesExcepcions WHERE num=___; ( 1 .. 5, depenent de l'error)
+RAISE EXCEPTION '%',missatge; (missatge ha de ser una variable definida al vostre procediment)
+
+Suposem el joc de proves que trobareu al fitxer adjunt i la sentència
+select * from assignar_individual('anna','escacs');
+La sentència s'executarà sense cap problema, i l'estat de la base de dades just després ha de ser:
+
+Taula Socisclubs
+anna	escacs
+joanna	petanca
+josefa	petanca
+pere	petanca
+Taula clubs_amb_mes_de_5_soci
+sense cap fila
+#########################################################################################################################
+create table socis ( nsoci char(10) primary key, sexe char(1) not null);
+
+create table clubs ( nclub char(10) primary key);
+
+create table socisclubs (nsoci char(10) not null references socis, 
+  nclub char(10) not null references clubs, 
+  primary key(nsoci, nclub));
+
+create table clubs_amb_mes_de_5_socis (nclub char(10) primary key references clubs);
+
+create table missatgesExcepcions(
+	num integer, 
+	texte varchar(50)
+	);
+
+	
+	
+insert into missatgesExcepcions values(1, 'Club amb mes de 10 socis');
+insert into missatgesExcepcions values(2, 'Club amb mes homes que dones');
+insert into missatgesExcepcions values(3, 'Soci ja assignat a aquest club');
+insert into missatgesExcepcions values(4, 'O el soci o el club no existeixen');
+insert into missatgesExcepcions values(5, 'Error intern');
+
+insert into clubs values ('escacs');
+insert into clubs values ('petanca');
+
+insert into socis values ('anna','F');
+
+insert into socis values ('joanna','F');
+insert into socis values ('josefa','F');
+insert into socis values ('pere','M');
+
+insert into socisclubs values('joanna','petanca');
+insert into socisclubs values('josefa','petanca');
+insert into socisclubs values('pere','petanca');
+
+CREATE OR REPLACE FUNCTION assignar_individual(nomSoci char(10), nomClub char(10))
+	RETURNS void AS $$
+	declare
+	missatge varchar(50);
+	nF integer;
+	nM integer;
+
+	begin
+	insert into socisclubs values(nomSoci, nomClub);
+	select count(*) into nF from socis s natural inner join socisclubs sc
+							where sexe = 'F' and nomClub = sc.nclub;
+
+
+	select count(*) into nM from socis s natural inner join socisclubs sc
+							where sexe = 'M' and nomClub = sc.nclub;
+
+	if((nM + nF) > 10) 
+	then 
+		SELECT texte INTO missatge FROM missatgesExcepcions WHERE num=1;
+		RAISE EXCEPTION '%',missatge;
+						  
+	elseif(nM > nF) 
+	then 
+		SELECT texte INTO missatge FROM missatgesExcepcions WHERE num=2;
+		RAISE EXCEPTION '%',missatge;
+						                  
+	elseif((nM + nF) = 6) 
+	then 
+		insert into clubs_amb_mes_de_5_socis values(nomClub);
+	
+	
+	end if;
+	return;
+
+	EXCEPTION
+	WHEN raise_exception THEN raise exception '%',SQLERRM;
+	when unique_violation then
+	SELECT texte INTO missatge FROM missatgesExcepcions WHERE num=3;
+        RAISE EXCEPTION '%',missatge;
+	when foreign_key_violation then
+	SELECT texte INTO missatge FROM missatgesExcepcions WHERE num=4;
+        RAISE EXCEPTION '%',missatge;
+	WHEN others THEN
+	SELECT texte INTO missatge FROM missatgesExcepcions WHERE num=5;
+        RAISE EXCEPTION '%',missatge;
+
+END;$$LANGUAGE plpgsql;
+
+
+
