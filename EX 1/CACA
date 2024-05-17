@@ -1,0 +1,10 @@
+#EX 1
+Doneu una sentència SQL per obtenir els números i els noms dels departament situats a MADRID, que tenen empleats que guanyen més de 200000.
+Pel joc de proves que trobareu al fitxer adjunt, la sortida ha de ser:
+
+NUM_DPT		NOM_DPT
+5		VENDES
+
+select distinct  d.num_dpt, NOM_DPT
+from departaments d, empleats e 
+where d.ciutat_dpt = 'MADRID' and e.num_dpt  = d.num_dpt  and e.sou > 200000
